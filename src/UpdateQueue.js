@@ -22,7 +22,7 @@ export class UpdateQueue {
     while (currentUpdate) {
       let  nextState = typeof currentUpdate.payload === 'function' 
         ? currentUpdate.payload(state) : currentUpdate.payload
-      state = {...state, ...nextState}
+      state = typeof state === 'object' ? {...state, ...nextState} : nextState
       currentUpdate = currentUpdate.nextUpdate
     }
     this.firstUpdate = this.lastUpdate = null

@@ -1,5 +1,5 @@
 import {TAG_ROOT} from './constants.js'
-import scheduleRoot from './scheduler.js'
+import {scheduleRoot} from './scheduler.js'
 
 // 把元素渲染到容器内
 function render(element, container){

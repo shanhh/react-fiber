@@ -1,6 +1,6 @@
-import { TAG_ROOT,  ELEMENT_TEXT, TAG_TEXT, TAG_HOST, TAG_CLASS, PLACEMENT, DELETION, UPDATE} from './constants.js'
+import { TAG_ROOT,  ELEMENT_TEXT, TAG_TEXT, TAG_HOST, TAG_CLASS, TAG_FUNCTION, PLACEMENT, DELETION, UPDATE} from './constants.js'
 import setProps from './utils.js'
-import {UpdateQueue} from './UpdateQueue.js'
+import {UpdateQueue, Update} from './UpdateQueue.js'
 /**
  * 从根节点开始渲染和调度
  * 两个阶段 
@@ -13,7 +13,9 @@ let nextUnitOfWork = null  // 下一个工作单元
 let workInProgressRoot = null // RootFiber 应用的根 正在工作的根fiber
 let currentRoot = null // 渲染成功的当前根fiber树
 let deletions = [] // 删除的节点 并不放在effectList 放在这个数组中
-export default function scheduleRoot(rootFiber) {
+let workInProgressFiber = null // 正在工作的fiber
+let hookIndex = 0 // hooks索引
+export function scheduleRoot(rootFiber) {
   if(currentRoot && currentRoot.alternate) { // 第二次之后的更新 
     workInProgressRoot = currentRoot.alternate // 上上次渲染的那个fiber tree
     workInProgressRoot.alternate = currentRoot // 确定好指向
@@ -34,6 +36,8 @@ export default function scheduleRoot(rootFiber) {
   // 把指针清空
   workInProgressRoot.firstEffect = workInProgressRoot.lastEffect = workInProgressRoot.nextEffect = null
   nextUnitOfWork = workInProgressRoot
+  // 告诉浏览器在空闲的时候帮我执行任务
+  requestIdleCallback(workLoop, {timeout: 5000})
 }
 
 /**
@@ -50,6 +54,8 @@ function beginWork(currentFiber) {
     updateHost(currentFiber)
   } else if(currentFiber.tag === TAG_CLASS) { // class组件
     updateClassComponent(currentFiber)
+  } else if (currentFiber.tag === TAG_FUNCTION) { 
+    updateFunctionComponent(currentFiber)
   }
 }
 
@@ -69,6 +75,15 @@ function updateDOM(stateNode, oldProps, newProps) {
   }
 }
 
+function updateFunctionComponent(currentFiber) {
+  // 对hooks进行处理
+  workInProgressFiber = currentFiber
+  hookIndex = 0
+  workInProgressFiber.hooks = []
+
+  const newChildren = [currentFiber.type(currentFiber.props)]
+  reconcileChildren(currentFiber, newChildren)
+}
 function updateClassComponent(currentFiber) {
   if (!currentFiber.stateNode) { // 类组件的stateNode是 组件的实例
     currentFiber.stateNode = new currentFiber.type(currentFiber.props)
@@ -113,8 +128,11 @@ function reconcileChildren(currentFiber, newChildren) {
     let newFiber; // 新的fiber
     const sameType = oldFiber && newChild && oldFiber.type === newChild.type
     let tag
+  
     if (newChild && typeof newChild.type === 'function' && newChild.type.prototype.isReactComponent) {
       tag = TAG_CLASS // 类组件
+    }else if (newChild && typeof newChild.type === 'function') {
+      tag = TAG_FUNCTION // 函数组件
     } else if (newChild && newChild.type === ELEMENT_TEXT) {
       tag = TAG_TEXT // 文本节点
     } else if (newChild && typeof newChild.type === 'string') {
@@ -217,14 +235,14 @@ function workLoop(deadline) {
   while (nextUnitOfWork && !shouldYield) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork)
     shouldYield = deadline.timeRemaining() < 1 // 没时间了就让出控制权
-    
   }
   if (!nextUnitOfWork && workInProgressRoot) {
     console.log('render阶段结束')
     commitRoot()
-  } 
-  // 请求浏览器调度
-  requestIdleCallback(workLoop, {timeout: 5000})
+  } else{
+    // 请求浏览器调度
+    requestIdleCallback(workLoop, {timeout: 5000})
+  }
 }
 
 function commitRoot() {
@@ -279,5 +297,28 @@ function commitDeletion(currentFiber, returnDOM) {
   }
 }
 
-// 告诉浏览器在空闲的时候帮我执行任务
-requestIdleCallback(workLoop, {timeout: 5000})
+export function useReducer(reducer, initialState) {
+  let newHook = workInProgressFiber.alternate && workInProgressFiber.alternate.hooks
+    && workInProgressFiber.alternate.hooks[hookIndex]
+  if (newHook) { // 第二次渲染
+    newHook.state = newHook.updateQueue.forceUpdate(newHook.state) // 拿上一次的状态
+  } else {
+    newHook = {
+      state: initialState,
+      updateQueue: new UpdateQueue()
+    }
+  }
+  const dispatch = action => {
+    let payload = reducer ? reducer(newHook.state, action) : action
+    newHook.updateQueue.enqueueUpdate(
+      new Update(payload)
+    )
+    scheduleRoot()
+  }
+  workInProgressFiber.hooks[hookIndex++] = newHook
+  return [newHook.state, dispatch]
+}
+
+export function useState(initialState) {
+  return useReducer(null, initialState)
+}

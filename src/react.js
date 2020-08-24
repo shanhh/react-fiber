@@ -1,6 +1,6 @@
 import { ELEMENT_TEXT } from './constants.js'
 import {Update} from './UpdateQueue.js'
-import scheduleRoot from './scheduler.js'
+import {scheduleRoot, useReducer, useState} from './scheduler.js'
 /**
  * 创建虚拟Dom的方法
  * @param {*} type 元素类型 div span p
@@ -42,7 +42,9 @@ Component.prototype.isReactComponent = {} // 类组件的标识
 
 const React = {
   createElement,
-  Component
+  Component,
+  useReducer,
+  useState
 }
 
 export default React
